@@ -13,7 +13,8 @@ module Devise
     # Configuration:
     #
     #   maximum_attempts: how many attempts should be accepted before blocking the user.
-    #   unlock_strategy: unlock the user account by :time, :email or :both.
+    #   lock_strategy: lock the user account by :failed_attempts or :none.
+    #   unlock_strategy: unlock the user account by :time, :email, :both or :none.
     #   unlock_in: the time you want to lock the user after to lock happens. Only
     #              available when unlock_strategy is :time or :both.
     #
@@ -26,25 +27,27 @@ module Devise
         end
       end
 
+      delegate :lock_strategy_enabled?, :unlock_strategy_enabled?, :to => "self.class"
+
       # Lock an user setting it's locked_at to actual time.
       def lock_access!
         return true if access_locked?
         self.locked_at = Time.now
 
-        if self.class.unlock_strategy_enabled?(:email)
+        if unlock_strategy_enabled?(:email)
           generate_unlock_token
           send_unlock_instructions
         end
 
-        save(false)
+        save(:validate => false)
       end
 
       # Unlock an user by cleaning locket_at and failed_attempts.
       def unlock_access!
         if_access_locked do
           self.locked_at = nil
-          self.failed_attempts = 0
-          self.unlock_token = nil
+          self.failed_attempts = 0 if respond_to?(:failed_attempts=)
+          self.unlock_token = nil if respond_to?(:unlock_token=)
           save(false)
         end
       end
@@ -80,11 +83,14 @@ module Devise
       # for verifying whether an user is allowed to sign in or not. If the user
       # is locked, it should never be allowed.
       def valid_for_authentication?(attributes)
+        return super unless !new_record? && lock_strategy_enabled?(:failed_attempts)
+
         if result = super
+
           self.failed_attempts = 0
         else
           self.failed_attempts += 1
-          lock_access! if failed_attempts > self.class.maximum_attempts
+          lock_access! if attempts_exceeded?
         end
         save(false) if changed?
         result
@@ -92,14 +98,18 @@ module Devise
 
       protected
 
+        def attempts_exceeded?
+          self.failed_attempts > self.class.maximum_attempts
+        end
+
         # Generates unlock token
         def generate_unlock_token
-          self.unlock_token = Devise.friendly_token
+          self.unlock_token = self.class.unlock_token
         end
 
         # Tells if the lock is expired if :time unlock strategy is active
         def lock_expired?
-          if self.class.unlock_strategy_enabled?(:time)
+          if unlock_strategy_enabled?(:time)
             locked_at && locked_at < self.class.unlock_in.ago
           else
             false
@@ -143,7 +153,16 @@ module Devise
           [:both, strategy].include?(self.unlock_strategy)
         end
 
-        Devise::Models.config(self, :maximum_attempts, :unlock_strategy, :unlock_in)
+        # Is the lock enabled for the given lock strategy?
+        def lock_strategy_enabled?(strategy)
+          self.lock_strategy == strategy
+        end
+
+        def unlock_token
+          Devise.friendly_token
+        end
+
+        Devise::Models.config(self, :maximum_attempts, :lock_strategy, :unlock_strategy, :unlock_in)
       end
     end
   end

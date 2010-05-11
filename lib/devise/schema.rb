@@ -58,11 +58,30 @@ module Devise
       apply_schema :last_sign_in_ip,    String
     end
 
-    # Creates failed_attempts, unlock_token and locked_at
-    def lockable
-      apply_schema :failed_attempts, Integer, :default => 0
-      apply_schema :unlock_token,    String
-      apply_schema :locked_at,       DateTime
+    # Creates failed_attempts, unlock_token and locked_at depending on the options given.
+    #
+    # == Options
+    # * :unlock_strategy - The strategy used for unlock. Can be :time, :email, :both (default), :none.
+    #   If :email or :both, creates a unlock_token field.
+    # * :lock_strategy - The strategy used for locking. Can be :failed_attempts (default) or :none.
+    def lockable(options={})
+      unlock_strategy   = options[:unlock_strategy]
+      unlock_strategy ||= self.unlock_strategy if respond_to?(:unlock_strategy)
+      unlock_strategy ||= :both
+
+      lock_strategy   = options[:lock_strategy]
+      lock_strategy ||= self.lock_strategy if respond_to?(:lock_strategy)
+      lock_strategy ||= :failed_attempts
+
+      if lock_strategy == :failed_attempts
+        apply_schema :failed_attempts, Integer, :default => 0
+      end
+
+      if [:both, :email].include?(unlock_strategy)
+        apply_schema :unlock_token, String
+      end
+
+      apply_schema :locked_at, DateTime
     end
 
     # Overwrite with specific modification to create your own schema.

@@ -36,6 +36,15 @@ class LockableTest < ActiveSupport::TestCase
     assert_equal 0, user.reload.failed_attempts
   end
 
+  test "should not touch failed_attempts if lock_strategy is none" do
+    user = create_user
+    swap Devise, :lock_strategy => :none, :maximum_attempts => 2 do
+      3.times { User.authenticate(:email => user.email, :password => "anotherpassword") }
+      assert !user.access_locked?
+      assert_equal 0, user.failed_attempts
+    end
+  end
+
   test "should verify whether a user is locked or not" do
     user = create_user
     assert_not user.access_locked?
@@ -51,7 +60,7 @@ class LockableTest < ActiveSupport::TestCase
     assert_not user.active?
   end
 
-  test "should unlock an user by cleaning locked_at, falied_attempts and unlock_token" do
+  test "should unlock an user by cleaning locked_at, failed_attempts and unlock_token" do
     user = create_user
     user.lock_access!
     assert_not_nil user.reload.locked_at
@@ -63,13 +72,13 @@ class LockableTest < ActiveSupport::TestCase
     assert 0, user.reload.failed_attempts
   end
 
-  test "should not lock a locked account" do
-    user = create_user
-    user.lock_access!
-    assert_no_difference "ActionMailer::Base.deliveries.size" do
-      user.lock_access!
-    end
-  end
+  # test "should not lock a locked account" do
+  #   user = create_user
+  #   user.lock_access!
+  #   assert_no_difference "ActionMailer::Base.deliveries.size" do
+  #     user.lock_access!
+  #   end
+  # end
 
   test 'should not unlock an unlocked user' do
     user = create_user
@@ -126,6 +135,11 @@ class LockableTest < ActiveSupport::TestCase
       user.lock_access!
       assert_nil user.unlock_token
     end
+    swap Devise, :unlock_strategy => :none do
+      user = create_user
+      user.lock_access!
+      assert_nil user.unlock_token
+    end
   end
 
   test "should send email with unlock instructions when :email is an unlock strategy" do
@@ -139,6 +153,12 @@ class LockableTest < ActiveSupport::TestCase
 
   test "should not send email with unlock instructions when :email is not an unlock strategy" do
     swap Devise, :unlock_strategy => :time do
+      user = create_user
+      assert_email_not_sent do
+        user.lock_access!
+      end
+    end
+    swap Devise, :unlock_strategy => :none do
       user = create_user
       assert_email_not_sent do
         user.lock_access!
